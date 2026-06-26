@@ -133,7 +133,36 @@ public class CppOperationBody extends OperationBody {
 		}
 		else if(statement instanceof IASTForStatement forStatement) {
 			// IASTForStatement models a generic for loop; ICPPASTForStatement adds C++ condition declarations and implicit destructor names.
-			// composite
+			CompositeStatementObject child = new CompositeStatementObject(sourceFolder, filePath, forStatement, parent.getDepth()+1, CodeElementType.FOR_STATEMENT, fileContent);
+			parent.addStatement(child);
+			if(forStatement.getInitializerStatement() instanceof IASTExpressionStatement initializerStatement && initializerStatement.getExpression() != null) {
+				AbstractExpression abstractExpression = new AbstractExpression(sourceFolder, filePath, initializerStatement.getExpression(), CodeElementType.FOR_STATEMENT_INITIALIZER, container, activeVariableDeclarations, fileContent, Collections.emptyList());
+				child.addExpression(abstractExpression);
+			}
+			else if(forStatement.getInitializerStatement() != null) {
+				// TODO: teach CppVisitor to extract C++ declaration initializers so variables declared in for initializers are scoped to this for statement.
+				processStatement(sourceFolder, filePath, child, forStatement.getInitializerStatement(), fileContent);
+			}
+			if(forStatement instanceof ICPPASTForStatement cppForStatement) {
+				if(cppForStatement.getConditionDeclaration() != null) {
+					// TODO: teach CppVisitor to extract C++ condition declarations so variables declared in for conditions are scoped to this for statement.
+				}
+			}
+			if(forStatement.getConditionExpression() != null) {
+				AbstractExpression abstractExpression = new AbstractExpression(sourceFolder, filePath, forStatement.getConditionExpression(), CodeElementType.FOR_STATEMENT_CONDITION, container, activeVariableDeclarations, fileContent, Collections.emptyList());
+				child.addExpression(abstractExpression);
+			}
+			if(forStatement.getIterationExpression() != null) {
+				AbstractExpression abstractExpression = new AbstractExpression(sourceFolder, filePath, forStatement.getIterationExpression(), CodeElementType.FOR_STATEMENT_UPDATER, container, activeVariableDeclarations, fileContent, Collections.emptyList());
+				child.addExpression(abstractExpression);
+			}
+			addStatementInVariableScopes(child);
+			List<VariableDeclaration> variableDeclarations = child.getVariableDeclarations();
+			addAllInActiveVariableDeclarations(variableDeclarations);
+			if(forStatement.getBody() != null) {
+				processStatement(sourceFolder, filePath, child, forStatement.getBody(), fileContent);
+			}
+			removeAllFromActiveVariableDeclarations(variableDeclarations);
 		}
 		else if(statement instanceof IASTGotoStatement gotoStatement) {
 			StatementObject child = new StatementObject(sourceFolder, filePath, gotoStatement, parent.getDepth()+1, CodeElementType.GOTO_STATEMENT, container, activeVariableDeclarations, fileContent);
@@ -189,7 +218,24 @@ public class CppOperationBody extends OperationBody {
 		}
 		else if(statement instanceof IASTSwitchStatement switchStatement) {
 			// IASTSwitchStatement uses a controller expression; ICPPASTSwitchStatement also supports C++ init-statements, controller declarations, and scope.
-			// composite
+			CompositeStatementObject child = new CompositeStatementObject(sourceFolder, filePath, switchStatement, parent.getDepth()+1, CodeElementType.SWITCH_STATEMENT, fileContent);
+			parent.addStatement(child);
+			if(switchStatement instanceof ICPPASTSwitchStatement cppSwitchStatement) {
+				if(cppSwitchStatement.getInitializerStatement() != null) {
+					processStatement(sourceFolder, filePath, child, cppSwitchStatement.getInitializerStatement(), fileContent);
+				}
+				if(cppSwitchStatement.getControllerDeclaration() != null) {
+					// TODO: teach CppVisitor to extract C++ controller declarations so variables declared in switch controllers are scoped to this switch statement.
+				}
+			}
+			if(switchStatement.getControllerExpression() != null) {
+				AbstractExpression abstractExpression = new AbstractExpression(sourceFolder, filePath, switchStatement.getControllerExpression(), CodeElementType.SWITCH_STATEMENT_CONDITION, container, activeVariableDeclarations, fileContent, Collections.emptyList());
+				child.addExpression(abstractExpression);
+			}
+			addStatementInVariableScopes(child);
+			if(switchStatement.getBody() != null) {
+				processStatement(sourceFolder, filePath, child, switchStatement.getBody(), fileContent);
+			}
 		}
 		else if(statement instanceof IASTWhileStatement whileStatement) {
 			// IASTWhileStatement uses a condition expression; ICPPASTWhileStatement also supports C++ condition declarations and scope.
