@@ -16,6 +16,10 @@ import gr.uom.java.xmi.decomposition.AbstractCodeFragment;
 import gr.uom.java.xmi.decomposition.CompositeStatementObject;
 import gr.uom.java.xmi.decomposition.TryStatementObject;
 import gr.uom.java.xmi.decomposition.VariableDeclaration;
+import gr.uom.java.xmi.diff.UMLClassBaseDiff;
+import gr.uom.java.xmi.diff.UMLModelDiff;
+import gr.uom.java.xmi.diff.UMLOperationDiff;
+import gr.uom.java.xmi.diff.UMLTypeParameterDiff;
 
 class CppFileProcessorTest {
 	@Test
@@ -165,6 +169,80 @@ class CppFileProcessorTest {
 		UMLOperation value = findOperation(widget.getOperations(), "value");
 		assertTrue(value.getClassName().contains("outer.inner"));
 		assertTrue(value.getClassName().contains("Widget"));
+	}
+
+	@Test
+	void diffsCppTemplateDeclarationsWithTypeParameterChanges() throws Exception {
+		String filePath = "src/templates.cpp";
+		String before = String.join("\n",
+				"template <typename T>",
+				"class Box {",
+				"public:",
+				"  T value(T input) {",
+				"    return input;",
+				"  }",
+				"};",
+				"template <typename T>",
+				"T identity(T value) {",
+				"  return value;",
+				"}") + "\n";
+		String after = String.join("\n",
+				"template <typename U>",
+				"class Box {",
+				"public:",
+				"  U value(U input) {",
+				"    return input;",
+				"  }",
+				"};",
+				"template <typename U>",
+				"U identity(U value) {",
+				"  return value;",
+				"}") + "\n";
+
+		UMLModel beforeModel = processCppModel(filePath, before);
+		UMLModel afterModel = processCppModel(filePath, after);
+
+		UMLClass beforeBox = findClass(beforeModel.getClassList(), "Box");
+		UMLClass afterBox = findClass(afterModel.getClassList(), "Box");
+		assertEquals(List.of("T"), beforeBox.getTypeParameterNames());
+		assertEquals(List.of("U"), afterBox.getTypeParameterNames());
+
+		UMLOperation beforeIdentity = findOperation(findClass(beforeModel.getClassList(), "templates").getOperations(), "identity");
+		UMLOperation afterIdentity = findOperation(findClass(afterModel.getClassList(), "templates").getOperations(), "identity");
+		assertEquals(List.of("T"), beforeIdentity.getTypeParameters().stream().map(UMLTypeParameter::getName).toList());
+		assertEquals(List.of("U"), afterIdentity.getTypeParameters().stream().map(UMLTypeParameter::getName).toList());
+
+		UMLModelDiff modelDiff = beforeModel.diff(afterModel);
+		UMLClassBaseDiff boxDiff = modelDiff.getUMLClassDiff(beforeBox.getName());
+		assertNotNull(boxDiff);
+		UMLTypeParameterDiff classTypeParameterDiff = boxDiff.getTypeParameterDiffList().getTypeParameterDiffs().iterator().next();
+		assertEquals("T", classTypeParameterDiff.getRemovedTypeParameter().getName());
+		assertEquals("U", classTypeParameterDiff.getAddedTypeParameter().getName());
+
+		UMLOperationDiff operationDiff = new UMLOperationDiff(beforeIdentity, afterIdentity, null);
+		UMLTypeParameterDiff operationTypeParameterDiff = operationDiff.getTypeParameterListDiff().getTypeParameterDiffs().iterator().next();
+		assertEquals("T", operationTypeParameterDiff.getRemovedTypeParameter().getName());
+		assertEquals("U", operationTypeParameterDiff.getAddedTypeParameter().getName());
+	}
+
+	@Test
+	void skipsUnnamedCppNonTypeTemplateParameters() {
+		String filePath = "src/templates.cpp";
+		String fileContent = String.join("\n",
+				"template <int>",
+				"class Buffer {};",
+				"template <int>",
+				"int fixed() {",
+				"  return 1;",
+				"}") + "\n";
+
+		UMLModel model = processCppModel(filePath, fileContent);
+
+		UMLClass buffer = findClass(model.getClassList(), "Buffer");
+		assertTrue(buffer.getTypeParameters().isEmpty());
+
+		UMLOperation fixed = findOperation(findClass(model.getClassList(), "templates").getOperations(), "fixed");
+		assertTrue(fixed.getTypeParameters().isEmpty());
 	}
 
 	@Test
@@ -332,6 +410,13 @@ class CppFileProcessorTest {
 				.filter(umlClass -> umlClass.getName().equals(name) || umlClass.getName().endsWith("." + name))
 				.findFirst()
 				.orElseThrow(() -> new AssertionError("Expected class: " + name));
+	}
+
+	private static UMLModel processCppModel(String filePath, String fileContent) {
+		UMLModel model = new UMLModel(Set.of("src"));
+		CppFileProcessor processor = new CppFileProcessor(model);
+		processor.processCppFile(filePath, fileContent, false);
+		return model;
 	}
 
 	private static List<String> parameterTypeNames(UMLOperation operation) {
